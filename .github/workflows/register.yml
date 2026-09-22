@@ -1,4 +1,4 @@
-name: Anonymous Production Runner
+name: Telegram Mini App Real Registration Runner
 
 on:
   workflow_dispatch:
@@ -6,9 +6,9 @@ on:
       target_url:
         description: 'Target Website URL'
         required: true
-        default: 'https://moneyloop24.blogspot.com'
+        default: 'https://moneyloop24.blogspot.com/?m=1'
       reg_count:
-        description: 'Number of Registrations (e.g. 10, 50, 100)'
+        description: 'Number of Registrations'
         required: true
         default: '10'
 
@@ -30,7 +30,7 @@ jobs:
           npm install
           npx playwright install --with-deps chromium
 
-      - name: Execute Script
+      - name: Execute Telegram Mini App Registration Script
         env:
           TARGET_URL: ${{ github.event.inputs.target_url }}
           REG_COUNT: ${{ github.event.inputs.reg_count }}
