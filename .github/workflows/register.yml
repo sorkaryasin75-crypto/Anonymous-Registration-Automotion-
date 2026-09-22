@@ -27,7 +27,7 @@ jobs:
 
       - name: Install Project Dependencies
         run: |
-          npm ci
+          npm install
           npx playwright install --with-deps chromium
 
       - name: Execute Automation Script
