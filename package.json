@@ -1,0 +1,24 @@
+{
+  "name": "anonymous-registration-automation",
+  "version": "1.0.0",
+  "description": "Anonymous Real Registration Automation with Playwright, Dynamic UID, and Telegram Bot Notifications",
+  "main": "script.js",
+  "scripts": {
+    "start": "node script.js",
+    "test": "node script.js"
+  },
+  "keywords": [
+    "playwright",
+    "automation",
+    "registration",
+    "telegram-bot",
+    "github-actions"
+  ],
+  "author": "",
+  "license": "ISC",
+  "dependencies": {
+    "@faker-js/faker": "^8.4.1",
+    "playwright": "^1.42.1",
+    "user-agents": "^1.1.1"
+  }
+}
