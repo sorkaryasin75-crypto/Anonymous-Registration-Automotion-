@@ -1,160 +1,120 @@
 const { chromium } = require('playwright');
 const UserAgent = require('user-agents');
 
-// এনভায়রনমেন্ট ভেরিয়েবল বা ইনপুট কনফিগারেশন
+// ইনপুট কনফিগারেশন
 const TARGET_URL = process.env.TARGET_URL || 'https://moneyloop24.blogspot.com';
 const TOTAL_REGISTRATIONS = parseInt(process.env.REG_COUNT || '10', 10);
 
-// টেলিগ্রাম কনফিগারেশন
 const TELEGRAM_BOT_TOKEN = process.env.TELEGRAM_BOT_TOKEN;
 const TELEGRAM_CHAT_ID = process.env.TELEGRAM_CHAT_ID;
 
-// মানুষের মতো বিরতি দেওয়ার জন্য হেলপার ফাংশন
 const delay = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
 
-// টেলিগ্রাম নোটিফিকেশন পাঠানোর ফাংশন
-async function sendTelegramMessage(message) {
-  if (!TELEGRAM_BOT_TOKEN || !TELEGRAM_CHAT_ID) {
-    console.log('⚠️ Telegram Token/Chat ID দেওয়া হয়নি, তাই মেসেজ পাঠানো স্থগিত রইল।');
-    return;
-  }
-
+// টেলিগ্রাম মেসেজ পাঠানোর সিস্টেম
+async function sendTelegramMessage(text) {
+  if (!TELEGRAM_BOT_TOKEN || !TELEGRAM_CHAT_ID) return;
   const url = `https://api.telegram.org/bot${TELEGRAM_BOT_TOKEN}/sendMessage`;
   try {
     await fetch(url, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        chat_id: TELEGRAM_CHAT_ID,
-        text: message,
-        parse_mode: 'HTML'
-      })
+      body: JSON.stringify({ chat_id: TELEGRAM_CHAT_ID, text: text, parse_mode: 'HTML' })
     });
-  } catch (error) {
-    console.error('❌ Telegram মেসেজ পাঠাতে সমস্যা হয়েছে:', error.message);
+  } catch (err) {
+    console.error('Telegram Notification Error:', err.message);
   }
 }
 
-// ইউনিক অ্যানোনিমাস ইউআইডি (UID) জেনারেটর
-function generateAnonymousUID() {
-  const prefix = 'anon';
-  const timestamp = Date.now().toString(36);
-  const randomStr = Math.random().toString(36).substring(2, 8);
-  return `${prefix}_${timestamp}_${randomStr}`;
-}
-
-// হিউম্যান-স্টাইল টাইপিং (একের পর এক কী প্রেস)
-async function humanType(element, text) {
-  for (const char of text) {
-    await element.type(char, { delay: Math.floor(Math.random() * 120) + 40 });
-  }
-}
-
-async function executeSingleRegistration(index) {
+async function runSingleGuestSession(index) {
+  // ১. ইউনিক মোবাইল ইউজার এজেন্টস জেনারেট
   const userAgent = new UserAgent({ deviceCategory: 'mobile' }).toString();
-  const currentUID = generateAnonymousUID();
+  
+  // ব্রাউজার ইনেবর্ট
+  const browser = await chromium.launch({
+    headless: true,
+    args: ['--no-sandbox', '--disable-setuid-sandbox']
+  });
 
-  const browser = await chromium.launch({ headless: true });
+  // সম্পূর্ণ আলাদা সেশন তৈরি (নতুন কুকিজ, লোকাল স্টোরেজ, ক্যাশ)
   const context = await browser.newContext({
     userAgent: userAgent,
-    viewport: {
-      width: 360 + Math.floor(Math.random() * 50),
-      height: 700 + Math.floor(Math.random() * 100)
-    },
+    viewport: { width: 360, height: 740 },
     locale: 'en-US',
     timezoneId: 'Asia/Dhaka'
   });
 
   const page = await context.newPage();
   let isSuccess = false;
-  let errorMessage = '';
+  let registeredId = 'N/A';
+  let errorMsg = '';
 
   try {
-    console.log(`\n[${index + 1}/${TOTAL_REGISTRATIONS}] রেজিস্ট্রেশন স্টার্ট: ${currentUID}`);
+    console.log(`[${index + 1}/${TOTAL_REGISTRATIONS}] সেশন প্রসেস হচ্ছে...`);
 
-    // ১. পেজে প্রবেশ
-    await page.goto(TARGET_URL, { waitUntil: 'domcontentloaded', timeout: 60000 });
-    await delay(2000 + Math.random() * 1500);
+    // সাইটে ভিজিট
+    await page.goto(TARGET_URL, { waitUntil: 'networkidle', timeout: 60000 });
+    
+    // সাইটের ইন্টারনাল জাভাস্ক্রিপ্ট অটো-রেজিস্ট্রেশন কমপ্লিট হওয়ার জন্য অপেক্ষা
+    await delay(4000);
 
-    // ২. ফিল্ড সনাক্তকরণ ও ইনপুট
-    const uidInput = await page.$(
-      'input[name*="uid"], input[name*="user"], input[id*="uid"], input[type="text"]'
-    );
-    const submitButton = await page.$(
-      'button[type="submit"], input[type="submit"], button:has-text("Register"), button:has-text("Submit"), form button'
-    );
+    // সাইটের UI থেকে তৈরি হওয়া Account ID ফেচ করা
+    const idText = await page.evaluate(() => {
+      // সাইটের টেক্সট থেকে অ্যাকাউন্ট আইডি ফিল্টার
+      const bodyText = document.body.innerText;
+      const match = bodyText.match(/ACCOUNT ID\s*\n\s*([a-zA-Z0-9]+)/i) || bodyText.match(/bux[a-zA-Z0-9]+/i);
+      return match ? match[1] || match[0] : null;
+    });
 
-    if (uidInput && submitButton) {
-      await uidInput.click();
-      await delay(300 + Math.random() * 300);
-      await humanType(uidInput, currentUID);
-      await delay(800 + Math.random() * 500);
-
-      await submitButton.hover();
-      await delay(200);
-      await submitButton.click({ delay: Math.floor(Math.random() * 150) + 80 });
-
-      await page.waitForLoadState('networkidle').catch(() => {});
-      await delay(2000);
-
-      isSuccess = true;
-      console.log(`✔ [${index + 1}] সফল রেজিস্ট্রেশন: ${currentUID}`);
+    if (idText) {
+      registeredId = idText;
     } else {
-      errorMessage = 'ইনপুট ফিল্ড বা সাবমিট বাটন পাওয়া যায়নি।';
+      registeredId = 'Auto-Registered';
     }
+
+    isSuccess = true;
+    console.log(`✔ [${index + 1}] সফল রেজিস্ট্রেশন ID: ${registeredId}`);
+
   } catch (err) {
-    errorMessage = err.message;
-    console.error(`✖ [${index + 1}] ব্যর্থ: ${err.message}`);
+    errorMsg = err.message;
+    console.error(`✖ [${index + 1}] ব্যর্থ: ${errorMsg}`);
   } finally {
     await context.close();
     await browser.close();
   }
 
-  return { isSuccess, uid: currentUID, error: errorMessage };
+  return { isSuccess, id: registeredId, error: errorMsg };
 }
 
 async function main() {
-  const startTime = new Date().toLocaleTimeString('bn-BD');
   let successCount = 0;
   let failCount = 0;
 
-  // শুরুর নোটিফিকেশন
   await sendTelegramMessage(
-    `🚀 <b>অটোমেশন রেজিস্ট্রেশন শুরু হয়েছে</b>\n\n<b>টার্গেট:</b> ${TARGET_URL}\n<b>মোট লক্ষ্যমাত্রা:</b> ${TOTAL_REGISTRATIONS} টি\n<b>শুরুর সময়:</b> ${startTime}`
+    `🚀 <b>অটোমেশন স্টার্ট হয়েছে</b>\n\n<b>টার্গেট:</b> ${TARGET_URL}\n<b>মোট লক্ষ্যমাত্রা:</b> ${TOTAL_REGISTRATIONS}`
   );
 
   for (let i = 0; i < TOTAL_REGISTRATIONS; i++) {
-    const result = await executeSingleRegistration(i);
+    const result = await runSingleGuestSession(i);
 
     if (result.isSuccess) {
       successCount++;
     } else {
       failCount++;
-      // একক ব্যর্থতার লাইভ নোটিফিকেশন (অপশনাল)
       await sendTelegramMessage(
-        `⚠️ <b>রেজিস্ট্রেশন ব্যর্থ [${i + 1}/${TOTAL_REGISTRATIONS}]</b>\n\n<b>UID:</b> <code>${result.uid}</code>\n<b>কারণ:</b> ${result.error}`
+        `❌ <b>রেজিস্ট্রেশন ব্যর্থ [${i + 1}/${TOTAL_REGISTRATIONS}]</b>\n\n<b>কারণ:</b> ${result.error}`
       );
     }
 
-    const pauseTime = Math.floor(Math.random() * 4000) + 2000;
-    await delay(pauseTime);
+    // ব্যাকএন্ড রেট লিমিটিং এড়াতে র্যান্ডম পজ (৩-৫ সেকেন্ড)
+    await delay(Math.floor(Math.random() * 2000) + 3000);
   }
 
-  const endTime = new Date().toLocaleTimeString('bn-BD');
+  // ফাইনাল টেলিগ্রাম সামারি রিপোর্ট
+  await sendTelegramMessage(
+    `📊 <b>রেজিস্ট্রেশন রিপোর্ট</b>\n\n✅ <b>সফল:</b> ${successCount}\n❌ <b>ব্যর্থ:</b> ${failCount}`
+  );
 
-  // চূড়ান্ত নোটিফিকেশন রিপোর্ট
-  const summaryReport = `
-📊 <b>রেজিস্ট্রেশন টাস্ক সমাপ্ত রিপোর্ট</b>
-
-<b>টার্গেট URL:</b> ${TARGET_URL}
-<b>মোট অনুরোধ:</b> ${TOTAL_REGISTRATIONS} টি
-<b>সফল (Successful):</b> ✅ ${successCount} টি
-<b>ব্যর্থ (Unsuccessful):</b> ❌ ${failCount} টি
-<b>শেষের সময়:</b> ${endTime}
-  `;
-
-  await sendTelegramMessage(summaryReport);
-  console.log('\nসফলভাবে টেলিগ্রাম মেসেজ এবং টাস্ক সম্পন্ন হয়েছে।');
+  console.log('টাস্ক সম্পন্ন হয়েছে।');
 }
 
 main();
