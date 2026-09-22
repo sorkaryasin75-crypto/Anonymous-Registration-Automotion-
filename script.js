@@ -2,7 +2,7 @@ const { chromium } = require('playwright');
 const UserAgent = require('user-agents');
 
 // এনভায়রনমেন্ট ভেরিয়েবল বা ইনপুট কনফিগারেশন
-const TARGET_URL = process.env.TARGET_URL || 'https://moneyloop24.blogspot.com/?m=1';
+const TARGET_URL = process.env.TARGET_URL || 'https://moneyloop24.blogspot.com';
 const TOTAL_REGISTRATIONS = parseInt(process.env.REG_COUNT || '10', 10);
 
 // টেলিগ্রাম কনফিগারেশন
