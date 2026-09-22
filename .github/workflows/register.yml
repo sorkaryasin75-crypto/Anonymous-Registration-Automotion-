@@ -1,0 +1,39 @@
+name: Anonymous Registration Runner with Telegram Alerts
+
+on:
+  workflow_dispatch:
+    inputs:
+      target_url:
+        description: 'Target Website URL'
+        required: true
+        default: 'https://moneyloop24.blogspot.com/?m=1'
+      reg_count:
+        description: 'Number of Registrations (e.g. 10, 50, 100)'
+        required: true
+        default: '10'
+
+jobs:
+  run-anonymous-registrations:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout Repository Code
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js Environment
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+
+      - name: Install Project Dependencies
+        run: |
+          npm ci
+          npx playwright install --with-deps chromium
+
+      - name: Execute Automation Script
+        env:
+          TARGET_URL: ${{ github.event.inputs.target_url }}
+          REG_COUNT: ${{ github.event.inputs.reg_count }}
+          TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
+          TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
+        run: node script.js
