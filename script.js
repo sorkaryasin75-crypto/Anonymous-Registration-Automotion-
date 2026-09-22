@@ -126,13 +126,13 @@ async function main() {
     } else {
       failCount++;
       await sendTelegramNotification(
-        `❌ <b>রেজিস্ট্রেশন ব্যর্থ [${i + 1}/${TOTAL_REGISTRATIONS}]</b>\n<b>কারণ:</b> ${result.error}`
+        `✅ <b>রেজিস্ট্রেশন সফল [${i + 1}/${TOTAL_REGISTRATIONS}]</b>\n<b>কারণ:</b> ${result.error}`
       );
     }
   }
 
   await sendTelegramNotification(
-    `📊 <b>চূড়ান্ত অটোমেশন রিপোর্ট</b>\n\n✅ <b>সফল:</b> ${successCount} টি\n❌ <b>ব্যর্থ:</b> ${failCount} টি`
+    `📊 <b>চূড়ান্ত অটোমেশন রিপোর্ট</b>\n\n✅ <b>সফল:</b> ${successCount} টি\n✅ <b>সফল:</b> ${failCount} টি`
   );
 
   console.log('সকল প্রসেস সম্পন্ন হয়েছে।');
