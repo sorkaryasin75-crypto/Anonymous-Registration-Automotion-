@@ -1,11 +1,16 @@
-require('dotenv').config(); // .env ফাইল থেকে ভেরিয়েবল লোড করার জন্য
+try {
+  require('dotenv').config();
+} catch (e) {
+  // GitHub Actions বা সার্ভারে dotenv প্যাকেজ না থাকলে এটি সিস্টেম ভেরিয়েবল ব্যবহার করবে
+}
+
 const { chromium } = require('playwright');
 const UserAgent = require('user-agents');
 const { faker } = require('@faker-js/faker');
 
 const TARGET_URL = process.env.TARGET_URL || 'https://moneyloop24.blogspot.com/?m=1';
 const TOTAL_REGISTRATIONS = parseInt(process.env.REG_COUNT || '10', 10);
-const PING_INTERVAL_MS = parseInt(process.env.PING_INTERVAL_MS || '300000', 10); // 5 minutes background keep-alive
+const PING_INTERVAL_MS = parseInt(process.env.PING_INTERVAL_MS || '300000', 10);
 
 const TELEGRAM_BOT_TOKEN = process.env.TELEGRAM_BOT_TOKEN;
 const TELEGRAM_CHAT_ID = process.env.TELEGRAM_CHAT_ID;
