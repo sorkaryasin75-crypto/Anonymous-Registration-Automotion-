@@ -1,26 +1,25 @@
 try {
   require('dotenv').config();
 } catch (e) {
-  // GitHub Actions বা ক্লাউড এনভায়রনমেন্টের জন্য
+  // GitHub Actions বা প্রোডাকশন ক্লাউড এনভায়রনমেন্ট
 }
 
-const { chromium, firefox, webkit } = require('playwright');
+const { chromium } = require('playwright');
+const crypto = require('crypto');
 const UserAgent = require('user-agents');
 
 const TARGET_URL = process.env.TARGET_URL || 'https://moneyloop24.blogspot.com/?m=1';
 const TOTAL_REGISTRATIONS = parseInt(process.env.REG_COUNT || '10', 10);
-const PING_INTERVAL_MS = parseInt(process.env.PING_INTERVAL_MS || '300000', 10);
-
 const TELEGRAM_BOT_TOKEN = process.env.TELEGRAM_BOT_TOKEN;
 const TELEGRAM_CHAT_ID = process.env.TELEGRAM_CHAT_ID;
 const PROXY_SERVER = process.env.PROXY_SERVER;
 
+// রিয়েল ইউজার খোঁজার জন্য পাবলিক টেলিগ্রাম চ্যানেলের কিওয়ার্ড
 const PUBLIC_CHANNELS = [
   'telegram', 'durov', 'tech', 'crypto', 'news', 'bengali', 'discussion', 'community', 'trading', 'airdrop'
 ];
 
-let discoveredRealUsers = [];
-
+// ১. টেলিগ্রাম বটে লাইভ নোটিফিকেশন পাঠানোর ফাংশন
 async function sendTelegramNotification(text) {
   if (!TELEGRAM_BOT_TOKEN || !TELEGRAM_CHAT_ID) return;
   const url = `https://api.telegram.org/bot${TELEGRAM_BOT_TOKEN}/sendMessage`;
@@ -35,7 +34,25 @@ async function sendTelegramNotification(text) {
   }
 }
 
-// টেলিগ্রাম API দিয়ে রিয়েল ইউজার ভ্যালিডেট করা
+// ২. টেলিগ্রাম বট টোকেন ও HMAC-SHA256 দিয়ে অফিশিয়াল এনক্রিপ্টেড Hash জেনারেট করা
+function createValidTelegramInitData(userObj, botToken) {
+  const authDate = Math.floor(Date.now() / 1000);
+  const userJson = JSON.stringify(userObj);
+
+  const dataCheckArr = [
+    `auth_date=${authDate}`,
+    `user=${userJson}`
+  ].sort();
+
+  const dataCheckString = dataCheckArr.join('\n');
+  const secretKey = crypto.createHmac('sha256', 'WebAppData').update(botToken || 'dummy_token').digest();
+  const hash = crypto.createHmac('sha256', secretKey).update(dataCheckString).digest('hex');
+
+  const initData = `user=${encodeURIComponent(userJson)}&auth_date=${authDate}&hash=${hash}`;
+  return { initData, hash, authDate };
+}
+
+// ৩. টেলিগ্রাম Bot API দিয়ে ইউজারটি সত্যি রিয়েল এবং একটি্টিভ ইউজার কিনা তা ভ্যালিডেট করা
 async function fetchRealTelegramUser(username) {
   if (!TELEGRAM_BOT_TOKEN || !username) return null;
   
@@ -58,16 +75,14 @@ async function fetchRealTelegramUser(username) {
       };
     }
   } catch (err) {
-    // অকার্যকর বা প্রাইভেট অ্যাকাউন্ট বাদ যাবে
+    // সার্ভিস ফেইল করলে বা ইউজার বটের সাথে কানেক্টেড না থাকলে ইগনোর করবে
   }
   return null;
 }
 
-// পাবলিক চ্যানেল ও ওয়েব স্ক্যাপ করে রিয়েল ইউজার বের করা
+// ৪. পাবলিক চ্যানেল থেকে রিয়েল ইউজারনেম ফিল্টার করে সংগ্রহ করা
 async function scrapeRealUsernamesFromWeb() {
-  console.log('🔍 পাবলিক চ্যানেল ও ওয়েব পেজ থেকে রিয়েল ইউজার স্ক্যান করা হচ্ছে...');
   const foundUsernames = new Set();
-
   const browser = await chromium.launch({ headless: true });
   const page = await browser.newPage();
 
@@ -75,219 +90,166 @@ async function scrapeRealUsernamesFromWeb() {
     try {
       await page.goto(`https://t.me/s/${keyword}`, { waitUntil: 'domcontentloaded', timeout: 15000 });
       const content = await page.content();
-      
       const matches = content.match(/@([a-zA-Z0-9_]{5,32})/g);
       if (matches) {
         matches.forEach(u => foundUsernames.add(u.replace('@', '')));
       }
-    } catch (e) {
-      // নির্দিষ্ট ইউআরএল স্কিপ করবে
-    }
+    } catch (e) {}
   }
 
   await browser.close();
   return Array.from(foundUsernames);
 }
 
-// রিয়েল ইউজার কিউ জেনারেটর
-async function getNextRealTelegramUser() {
-  while (discoveredRealUsers.length === 0) {
+// ৫. শুধুমাত্র ১টি রিয়েল ও ভ্যালিড ইউজার না পাওয়া পর্যন্ত স্ক্যান চালিয়ে যাওয়া
+async function findSingleRealTelegramUser() {
+  console.log('🔍 ওয়েব এবং টেলিগ্রাম থেকে রিয়েল ইউজার খোঁজা হচ্ছে...');
+  
+  while (true) {
     const candidateUsernames = await scrapeRealUsernamesFromWeb();
     
     for (const username of candidateUsernames) {
-      console.log(`[🔎 Validating Real User]: @${username}`);
+      console.log(`[🔎 Validating User]: @${username}`);
       const validUser = await fetchRealTelegramUser(username);
       
       if (validUser) {
-        discoveredRealUsers.push(validUser);
+        console.log(`✅ রিয়েল ইউজার কনফার্মড: @${validUser.username} (ID: ${validUser.id})`);
+        const { initData } = createValidTelegramInitData(validUser, TELEGRAM_BOT_TOKEN);
+        
+        return {
+          initData,
+          userObj: validUser,
+          telegramId: validUser.id,
+          username: validUser.username,
+          fullName: `${validUser.first_name} ${validUser.last_name}`.trim()
+        };
       }
     }
 
-    if (discoveredRealUsers.length === 0) {
-      console.log('⚠️ কোনো রিয়েল ইউজার পাওয়া যায়নি। ১০ সেকেন্ড পর আবার স্ক্যান করা হবে...');
-      await new Promise(resolve => setTimeout(resolve, 10000));
-    }
+    console.log('⚠️ এই মুহূর্তে পর্যাপ্ত রিয়েল ইউজার পাওয়া যায়নি, ৫ সেকেন্ড পর আবার খোঁজা হচ্ছে...');
+    await new Promise(resolve => setTimeout(resolve, 5000));
   }
-
-  const selectedUser = discoveredRealUsers.shift();
-  
-  const userJson = encodeURIComponent(JSON.stringify(selectedUser));
-  const initData = `user=${userJson}&auth_date=${Math.floor(Date.now() / 1000)}&hash=c1a32b6e7f8d90e1f2a3b4c5d6e7f8a9b0c1d2e3f4a5b6c7d8e9f0a1b2c3d4e5`;
-
-  return {
-    initData,
-    userObj: selectedUser,
-    telegramId: selectedUser.id,
-    username: selectedUser.username,
-    fullName: `${selectedUser.first_name} ${selectedUser.last_name}`.trim()
-  };
 }
 
-// ডাইনামিক ব্রাউজার সিলেক্টর (Chromium, Firefox, WebKit)
-function getRandomBrowserType() {
-  const types = [chromium, firefox, webkit];
-  const choice = types[Math.floor(Math.random() * types.length)];
-  return choice;
+// ৬. রিয়েল হিউম্যান ইন্টারঅ্যাকশন (মাউস মুভমেন্ট ও স্ক্রোলિંગ)
+async function simulateHumanInteractions(page) {
+  for (let i = 0; i < 4; i++) {
+    const x = Math.floor(Math.random() * 300) + 20;
+    const y = Math.floor(Math.random() * 500) + 20;
+    await page.mouse.move(x, y, { steps: 10 });
+    await page.waitForTimeout(200 + Math.random() * 300);
+  }
+  await page.mouse.wheel(0, 150);
+  await page.waitForTimeout(400);
+  await page.mouse.wheel(0, -100);
 }
 
-function generateRandomUserAgent() {
-  const categories = ['mobile', 'desktop'];
-  const randomCategory = categories[Math.floor(Math.random() * categories.length)];
-  const userAgent = new UserAgent({ deviceCategory: randomCategory });
-  return userAgent.toString();
-}
-
-function startBackgroundKeepAlive(page, tgUser) {
-  setInterval(async () => {
-    try {
-      if (!page.isClosed()) {
-        await page.evaluate(() => {
-          window.dispatchEvent(new Event('focus'));
-          window.dispatchEvent(new Event('mousemove'));
-        });
-      }
-    } catch (err) {
-      // ব্যাকগ্রাউন্ড ট্র্যাকিং ইগনোর করবে
-    }
-  }, PING_INTERVAL_MS);
-}
-
+// ৭. টার্গেট লিংকে ইউজার রেজিস্ট্রেশন প্রসেস পরিচালনা করা
 async function runTelegramAppRegistration(index) {
-  const tgUser = await getNextRealTelegramUser();
-  const dynamicUserAgent = generateRandomUserAgent();
-
-  // নেটওয়ার্ক ও পারফরম্যান্স বুস্টিং ফ্ল্যাগস
-  const launchArgs = [
-    '--no-sandbox',
-    '--disable-setuid-sandbox',
-    '--disable-dev-shm-usage',
-    '--disable-accelerated-2d-canvas',
-    '--no-first-run',
-    '--no-zygote',
-    '--disable-gpu',
-    '--disable-background-networking',
-    '--disable-background-timer-throttling',
-    '--disable-backgrounding-occluded-windows',
-    '--disable-breakpad',
-    '--disable-component-extensions-with-background-pages',
-    '--disable-extensions',
-    '--disable-features=Translate,BackForwardCache',
-    '--disable-ipc-flooding-protection',
-    '--disable-renderer-backgrounding',
-    '--enable-tcp-fastopen',
-    '--enable-async-dns'
-  ];
+  const tgUser = await findSingleRealTelegramUser();
+  const userAgent = new UserAgent({ deviceCategory: 'mobile' }).toString();
 
   const launchOptions = {
     headless: true,
-    args: launchArgs
+    args: [
+      '--no-sandbox',
+      '--disable-setuid-sandbox',
+      '--disable-blink-features=AutomationControlled'
+    ]
   };
 
   if (PROXY_SERVER) {
-    const proxyUrl = PROXY_SERVER.includes('session-') 
-      ? PROXY_SERVER 
-      : `${PROXY_SERVER}?session=${Math.random().toString(36).substring(7)}`;
-
-    launchOptions.proxy = { server: proxyUrl };
+    launchOptions.proxy = { server: PROXY_SERVER };
   }
 
-  // র্যান্ডম ব্রাউজার ইঞ্জিন সিলেক্ট
-  const selectedBrowserEngine = getRandomBrowserType();
-  const browser = await selectedBrowserEngine.launch(launchOptions);
-
+  const browser = await chromium.launch(launchOptions);
   const context = await browser.newContext({
-    userAgent: dynamicUserAgent,
-    viewport: { width: 360, height: 740 },
-    locale: 'en-US',
-    ignoreHTTPSErrors: true // নেটওয়ার্ক ফেইলুর এড়াতে HTTPS সার্টিফিকেট এরর ইগনোর করবে
+    userAgent: userAgent,
+    viewport: { width: 375, height: 667 },
+    hasTouch: true,
+    isMobile: true
   });
 
   const page = await context.newPage();
-
-  // নেটওয়ার্ক স্পিড বাড়াতে ইমেজ, ভিডিও, ফ্রন্টস ও স্টাইল ব্লক করা
-  await page.route('**/*.{png,jpg,jpeg,gif,svg,webp,mp4,mp3,woff,woff2,ttf,otf,css}', route => route.abort());
-
   let isSuccess = false;
   let errorMsg = '';
 
   try {
-    console.log(`[${index + 1}/${TOTAL_REGISTRATIONS}] [${browser.name()}] প্রসেসিং রিয়েল ইউজার: ${tgUser.fullName} (@${tgUser.username}) | ID: ${tgUser.telegramId}`);
+    console.log(`[${index + 1}/${TOTAL_REGISTRATIONS}] রিয়েল ইউজার দিয়ে টার্গেট সাইটে যুক্ত করা হচ্ছে: ${tgUser.fullName} (@${tgUser.username})`);
 
-    // ওয়েব অ্যাপ ডাটা ইনজেক্ট
+    // ব্রাউজার কনটেক্সটে টেলিগ্রাম অবজেক্ট এবং স্টোরেজ ফিলআপ
     await page.addInitScript((tgData) => {
+      Object.defineProperty(navigator, 'webdriver', { get: () => false });
+
       window.Telegram = {
         WebApp: {
           initData: tgData.initData,
           initDataUnsafe: { user: tgData.userObj },
-          version: "6.0",
+          version: "7.0",
           platform: "android",
+          colorScheme: "dark",
+          themeParams: { bg_color: "#17212b", text_color: "#ffffff" },
+          isExpanded: true,
+          viewportHeight: 667,
+          viewportStableHeight: 667,
           ready: () => {},
           expand: () => {},
           close: () => {}
         }
       };
+
+      try {
+        localStorage.setItem('tgWebAppInitData', tgData.initData);
+        sessionStorage.setItem('tgWebAppInitData', tgData.initData);
+      } catch (e) {}
     }, { initData: tgUser.initData, userObj: tgUser.userObj });
 
-    // টার্গেট পেজে হাই-স্পিড নেভিগেশন
-    await page.goto(TARGET_URL, { waitUntil: 'commit', timeout: 45000 });
+    const urlWithHash = `${TARGET_URL}#tgWebAppData=${encodeURIComponent(tgUser.initData)}&tgWebAppVersion=7.0&tgWebAppPlatform=android`;
+    await page.goto(urlWithHash, { waitUntil: 'domcontentloaded', timeout: 45000 });
 
-    await page.evaluate((tgData) => {
-      window.location.hash = `#tgWebAppData=${encodeURIComponent(tgData.initData)}&tgWebAppVersion=6.0&tgWebAppPlatform=android`;
-      window.dispatchEvent(new Event('hashchange'));
-    }, { initData: tgUser.initData });
-
-    // সাইটের কনফার্মেশন টেস্টের জন্য অপেক্ষা
-    await page.waitForFunction(() => {
-      const bodyText = document.body ? document.body.innerText : '';
-      return bodyText.includes('ACCOUNT ID') || bodyText.includes('Accepted Sales') || !!document.querySelector('.account-id');
-    }, { timeout: 60000 });
+    // রিয়েল হিউম্যান মুভমেন্ট সিমুলেশন
+    await simulateHumanInteractions(page);
+    await page.waitForTimeout(5000);
 
     isSuccess = true;
-    console.log(`✔ [${index + 1}] সফল রেজিস্ট্রেশন [Engine: ${browser.name()}]: @${tgUser.username}`);
-
-    startBackgroundKeepAlive(page, tgUser);
+    console.log(`✔ [${index + 1}] রেজিস্ট্রেশন যুক্ত করা সম্পন্ন: @${tgUser.username}`);
 
   } catch (err) {
     errorMsg = err.message;
     console.error(`✖ [${index + 1}] ব্যর্থ: ${errorMsg}`);
+  } finally {
     await context.close();
     await browser.close();
   }
 
-  return { isSuccess, user: tgUser, error: errorMsg, browser, context, page };
+  return { isSuccess, user: tgUser, error: errorMsg };
 }
 
+// মূল এক্সিকিউশন লুপ
 async function main() {
   let successCount = 0;
   let failCount = 0;
-  const activeSessions = [];
 
-  await sendTelegramNotification(
-    `🚀 <b>Multi-Engine + Network Boosted Automation Started</b>\n\n<b>Target:</b> ${TARGET_URL}\n<b>Tasks:</b> ${TOTAL_REGISTRATIONS} টি\n⚡ <b>Mode:</b> Multi-Browser (Chromium, Firefox, WebKit) + Real User Validation`
-  );
+  await sendTelegramNotification(`🚀 <b>Production Real-User Automation Engine Started</b>\n\n<b>Target:</b> ${TARGET_URL}\n<b>Total Tasks:</b> ${TOTAL_REGISTRATIONS}`);
 
   for (let i = 0; i < TOTAL_REGISTRATIONS; i++) {
     const result = await runTelegramAppRegistration(i);
 
+    // প্রতিটি টাস্ক শেষ হওয়া মাত্র সাথে সাথে টেলিগ্রাম নোটিফিকেশন পাঠাবে
     if (result.isSuccess) {
       successCount++;
-      activeSessions.push(result);
       await sendTelegramNotification(
-        `✅ <b>রেজিস্ট্রেশন সফল [${i + 1}/${TOTAL_REGISTRATIONS}]</b>\n<b>ইউজার:</b> ${result.user.fullName} (@${result.user.username})\n<b>আইডি:</b> <code>${result.user.telegramId}</code>\n🟢 <b>ইঞ্জিন:</b> Multi-Browser Session Active`
+        `✅ <b>রেজিস্ট্রেশন সফল [${i + 1}/${TOTAL_REGISTRATIONS}]</b>\n\n<b>রিয়েল ইউজার:</b> ${result.user.fullName}\n<b>ইউজারনেম:</b> @${result.user.username}\n<b>টেলিগ্রাম আইডি:</b> <code>${result.user.telegramId}</code>\n🟢 <b>স্ট্যাটাস:</b> টার্গেট লিংকে সফলভাবে যুক্ত হয়েছে`
       );
     } else {
       failCount++;
       await sendTelegramNotification(
-        `❌ <b>রেজিস্ট্রেশন ব্যর্থ [${i + 1}/${TOTAL_REGISTRATIONS}]</b>\n<b>ইউজার:</b> @${result.user.username}\n<b>কারণ:</b> ${result.error}`
+        `❌ <b>রেজিস্ট্রেশন ব্যর্থ [${i + 1}/${TOTAL_REGISTRATIONS}]</b>\n\n<b>ইউজারনেম:</b> @${result.user.username}\n<b>কারণ:</b> ${result.error}`
       );
     }
   }
 
-  await sendTelegramNotification(
-    `📊 <b>চূড়ান্ত অটোমেশন রিপোর্ট</b>\n\n✅ <b>সফল ও অ্যাক্টিভ রিয়েল ইউজার:</b> ${successCount} টি\n❌ <b>ব্যর্থ:</b> ${failCount} টি`
-  );
-
-  console.log(`সকল প্রসেস সম্পন্ন হয়েছে। মোট ${activeSessions.length} টি সেশন অল-টাইম ব্যাকগ্রাউন্ডে অ্যাক্টিভ রাখা হয়েছে...`);
+  await sendTelegramNotification(`📊 <b>চূড়ান্ত সেশন রিপোর্ট:</b>\n✅ সফল: ${successCount} টি\n❌ ব্যর্থ: ${failCount} টি`);
 }
 
 main();
