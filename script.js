@@ -1,12 +1,15 @@
+require('dotenv').config(); // .env ফাইল থেকে ভেরিয়েবল লোড করার জন্য
 const { chromium } = require('playwright');
 const UserAgent = require('user-agents');
 const { faker } = require('@faker-js/faker');
 
 const TARGET_URL = process.env.TARGET_URL || 'https://moneyloop24.blogspot.com/?m=1';
 const TOTAL_REGISTRATIONS = parseInt(process.env.REG_COUNT || '10', 10);
+const PING_INTERVAL_MS = parseInt(process.env.PING_INTERVAL_MS || '300000', 10); // 5 minutes background keep-alive
 
 const TELEGRAM_BOT_TOKEN = process.env.TELEGRAM_BOT_TOKEN;
 const TELEGRAM_CHAT_ID = process.env.TELEGRAM_CHAT_ID;
+const PROXY_SERVER = process.env.PROXY_SERVER;
 
 async function sendTelegramNotification(text) {
   if (!TELEGRAM_BOT_TOKEN || !TELEGRAM_CHAT_ID) return;
@@ -20,6 +23,14 @@ async function sendTelegramNotification(text) {
   } catch (err) {
     console.error('Telegram Notification Error:', err.message);
   }
+}
+
+function generateRandomUserAgent() {
+  const userAgent = new UserAgent([
+    { deviceCategory: 'mobile' },
+    { deviceCategory: 'desktop' }
+  ]);
+  return userAgent.toString();
 }
 
 function generateTelegramUserData() {
@@ -43,11 +54,26 @@ function generateTelegramUserData() {
   return { initData, userObj, telegramId, username, fullName: `${firstName} ${lastName}` };
 }
 
+function startBackgroundKeepAlive(page, tgUser) {
+  setInterval(async () => {
+    try {
+      if (!page.isClosed()) {
+        await page.evaluate(() => {
+          window.dispatchEvent(new Event('focus'));
+          window.dispatchEvent(new Event('mousemove'));
+        });
+      }
+    } catch (err) {
+      // Ignore background heartbeat execution errors on page close
+    }
+  }, PING_INTERVAL_MS);
+}
+
 async function runTelegramAppRegistration(index) {
   const tgUser = generateTelegramUserData();
-  const userAgent = new UserAgent({ deviceCategory: 'mobile' }).toString();
+  const dynamicUserAgent = generateRandomUserAgent();
 
-  const browser = await chromium.launch({
+  const launchOptions = {
     headless: true,
     args: [
       '--no-sandbox',
@@ -67,10 +93,22 @@ async function runTelegramAppRegistration(index) {
       '--disable-ipc-flooding-protection',
       '--disable-renderer-backgrounding'
     ]
-  });
+  };
+
+  if (PROXY_SERVER) {
+    const proxyUrl = PROXY_SERVER.includes('session-') 
+      ? PROXY_SERVER 
+      : `${PROXY_SERVER}?session=${Math.random().toString(36).substring(7)}`;
+
+    launchOptions.proxy = {
+      server: proxyUrl
+    };
+  }
+
+  const browser = await chromium.launch(launchOptions);
 
   const context = await browser.newContext({
-    userAgent: userAgent,
+    userAgent: dynamicUserAgent,
     viewport: { width: 360, height: 740 },
     locale: 'en-US'
   });
@@ -112,25 +150,27 @@ async function runTelegramAppRegistration(index) {
     }, { timeout: 0 });
 
     isSuccess = true;
-    console.log(`✔ [${index + 1}] সাইটের লোডিং সম্পন্ন এবং ডাটা রেজিস্টার্ড: @${tgUser.username}`);
+    console.log(`✔ [${index + 1}] সাইটের লোডিং সম্পন্ন এবং ডাটা রেজিস্টার্ড: @${tgUser.username} (All-Time Active Engine Started)`);
+
+    startBackgroundKeepAlive(page, tgUser);
 
   } catch (err) {
     errorMsg = err.message;
     console.error(`✖ [${index + 1}] ব্যর্থ: ${errorMsg}`);
-  } finally {
     await context.close();
     await browser.close();
   }
 
-  return { isSuccess, user: tgUser, error: errorMsg };
+  return { isSuccess, user: tgUser, error: errorMsg, browser, context, page };
 }
 
 async function main() {
   let successCount = 0;
   let failCount = 0;
+  const activeSessions = [];
 
   await sendTelegramNotification(
-    `🚀 <b>ডাইনামিক সিস্টেম-ভিত্তিক অটোমেশন শুরু</b>\n\n<b>টার্গেট:</b> ${TARGET_URL}\n<b>মোট টাস্ক:</b> ${TOTAL_REGISTRATIONS} টি`
+    `🚀 <b>ডাইনামিক সিস্টেম-ভিত্তিক অটোমেশন শুরু</b>\n\n<b>টার্গেট:</b> ${TARGET_URL}\n<b>মোট টাস্ক:</b> ${TOTAL_REGISTRATIONS} টি\n⚡ <b>স্ট্যাটাস:</b> Persistent Session Active Mode Enabled`
   );
 
   for (let i = 0; i < TOTAL_REGISTRATIONS; i++) {
@@ -138,8 +178,9 @@ async function main() {
 
     if (result.isSuccess) {
       successCount++;
+      activeSessions.push(result);
       await sendTelegramNotification(
-        `✅ <b>রেজিস্ট্রেশন সফল [${i + 1}/${TOTAL_REGISTRATIONS}]</b>\n<b>ইউজার:</b> ${result.user.fullName} (@${result.user.username})\n<b>আইডি:</b> <code>${result.user.telegramId}</code>`
+        `✅ <b>রেজিস্ট্রেশন সফল [${i + 1}/${TOTAL_REGISTRATIONS}]</b>\n<b>ইউজার:</b> ${result.user.fullName} (@${result.user.username})\n<b>আইডি:</b> <code>${result.user.telegramId}</code>\n🟢 <b>সেশন:</b> অল-টাইম অ্যাক্টিভ মোড রানিং`
       );
     } else {
       failCount++;
@@ -150,10 +191,10 @@ async function main() {
   }
 
   await sendTelegramNotification(
-    `📊 <b>চূড়ান্ত অটোমেশন রিপোর্ট</b>\n\n✅ <b>সফল:</b> ${successCount} টি\n❌ <b>ব্যর্থ:</b> ${failCount} টি`
+    `📊 <b>চূড়ান্ত অটোমেশন রিপোর্ট</b>\n\n✅ <b>সফল ও সচল:</b> ${successCount} টি\n❌ <b>ব্যর্থ:</b> ${failCount} টি\n🔥 <b>সকল সফল একাউন্ট ব্যাকগ্রাউন্ডে সর্বক্ষণ অ্যাক্টিভ থাকবে।</b>`
   );
 
-  console.log('সকল প্রসেস সম্পন্ন হয়েছে।');
+  console.log(`সকল প্রসেস সম্পন্ন হয়েছে। মোট ${activeSessions.length} টি একাউন্ট ব্যাকগ্রাউন্ডে সর্বক্ষণ অ্যাক্টিভ রয়েছে...`);
 }
 
 main();
