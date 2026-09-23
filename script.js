@@ -8,7 +8,6 @@ const TOTAL_REGISTRATIONS = parseInt(process.env.REG_COUNT || '10', 10);
 const TELEGRAM_BOT_TOKEN = process.env.TELEGRAM_BOT_TOKEN;
 const TELEGRAM_CHAT_ID = process.env.TELEGRAM_CHAT_ID;
 
-// টেলিগ্রাম নোটিফিকেশন পাঠানোর ফাংশন
 async function sendTelegramNotification(text) {
   if (!TELEGRAM_BOT_TOKEN || !TELEGRAM_CHAT_ID) return;
   const url = `https://api.telegram.org/bot${TELEGRAM_BOT_TOKEN}/sendMessage`;
@@ -23,7 +22,6 @@ async function sendTelegramNotification(text) {
   }
 }
 
-// ভুয়া টেলিগ্রাম ইউজার ডাটা জেনারেটর
 function generateTelegramUserData() {
   const telegramId = Math.floor(100000000 + Math.random() * 900000000);
   const firstName = faker.person.firstName();
@@ -45,12 +43,10 @@ function generateTelegramUserData() {
   return { initData, userObj, telegramId, username, fullName: `${firstName} ${lastName}` };
 }
 
-// সুপার ফাস্ট রেজিস্ট্রেশন প্রসেস
 async function runTelegramAppRegistration(index) {
   const tgUser = generateTelegramUserData();
   const userAgent = new UserAgent({ deviceCategory: 'mobile' }).toString();
 
-  // সুপার ফাস্ট ব্রাউজার কনফিগারেশন
   const browser = await chromium.launch({
     headless: true,
     args: [
@@ -61,14 +57,13 @@ async function runTelegramAppRegistration(index) {
       '--no-first-run',
       '--no-zygote',
       '--disable-gpu',
-      '--disable-speech-api',
       '--disable-background-networking',
       '--disable-background-timer-throttling',
       '--disable-backgrounding-occluded-windows',
       '--disable-breakpad',
       '--disable-component-extensions-with-background-pages',
       '--disable-extensions',
-      '--disable-features=Translate,BackForwardCache,AcceptCHFrame',
+      '--disable-features=Translate,BackForwardCache',
       '--disable-ipc-flooding-protection',
       '--disable-renderer-backgrounding'
     ]
@@ -82,8 +77,7 @@ async function runTelegramAppRegistration(index) {
 
   const page = await context.newPage();
 
-  // সুপার ফাস্ট লোডিংয়ের জন্য ভারী রিসোর্স (ইমেজ, ফন্ট, মিডিয়া) ব্লক করা
-  await page.route('**/*.{png,jpg,jpeg,gif,svg,webp,mp4,mp3,woff,woff2,ttf,otf}', route => route.abort());
+  await page.route('**/*.{png,jpg,jpeg,gif,svg,webp,mp4,mp3,woff,woff2,ttf,otf,css}', route => route.abort());
 
   let isSuccess = false;
   let errorMsg = '';
@@ -91,7 +85,6 @@ async function runTelegramAppRegistration(index) {
   try {
     console.log(`[${index + 1}/${TOTAL_REGISTRATIONS}] প্রসেসিং: ${tgUser.fullName} (@${tgUser.username})`);
 
-    // ১. টেলিগ্রাম এনভায়রনমেন্ট ইনজেক্ট করা
     await page.addInitScript((tgData) => {
       window.Telegram = {
         WebApp: {
@@ -106,23 +99,20 @@ async function runTelegramAppRegistration(index) {
       };
     }, { initData: tgUser.initData, userObj: tgUser.userObj });
 
-    // ২. সুপার ফাস্ট পেজ লোড (domcontentloaded পর্যন্ত অপেক্ষা করবে)
-    await page.goto(TARGET_URL, { waitUntil: 'domcontentloaded', timeout: 30000 });
+    await page.goto(TARGET_URL, { waitUntil: 'commit', timeout: 0 });
 
-    // ৩. হ্যাশ ডাটা ইনজেকশন
     await page.evaluate((tgData) => {
       window.location.hash = `#tgWebAppData=${encodeURIComponent(tgData.initData)}&tgWebAppVersion=6.0&tgWebAppPlatform=android`;
       window.dispatchEvent(new Event('hashchange'));
     }, { initData: tgUser.initData });
 
-    // ৪. পেজের দরকারি এলিমেন্ট লোড হওয়া পর্যন্ত ডাইনামিক ওয়েট
     await page.waitForFunction(() => {
       const bodyText = document.body ? document.body.innerText : '';
       return bodyText.includes('ACCOUNT ID') || bodyText.includes('Accepted Sales') || !!document.querySelector('.account-id');
-    }, { timeout: 20000 });
+    }, { timeout: 0 });
 
     isSuccess = true;
-    console.log(`✔ [${index + 1}] সফল: @${tgUser.username}`);
+    console.log(`✔ [${index + 1}] সাইটের লোডিং সম্পন্ন এবং ডাটা রেজিস্টার্ড: @${tgUser.username}`);
 
   } catch (err) {
     errorMsg = err.message;
@@ -139,9 +129,8 @@ async function main() {
   let successCount = 0;
   let failCount = 0;
 
-  // শুরুর নোটিফিকেশন
   await sendTelegramNotification(
-    `🚀 <b>সুপার ফাস্ট অটোমেশন শুরু হয়েছে</b>\n\n🎯 <b>টার্গেট:</b> ${TARGET_URL}\n📊 <b>মোট টাস্ক:</b> ${TOTAL_REGISTRATIONS} টি`
+    `🚀 <b>ডাইনামিক সিস্টেম-ভিত্তিক অটোমেশন শুরু</b>\n\n<b>টার্গেট:</b> ${TARGET_URL}\n<b>মোট টাস্ক:</b> ${TOTAL_REGISTRATIONS} টি`
   );
 
   for (let i = 0; i < TOTAL_REGISTRATIONS; i++) {
@@ -149,25 +138,22 @@ async function main() {
 
     if (result.isSuccess) {
       successCount++;
-      // প্রতিটি সফল টাস্কের ইনস্ট্যান্ট টেলিগ্রাম রিপোর্ট
       await sendTelegramNotification(
-        `✅ <b>টাস্ক সফল [${i + 1}/${TOTAL_REGISTRATIONS}]</b>\n👤 <b>নাম:</b> ${result.user.fullName}\n🆔 <b>ইউজারনেম:</b> @${result.user.username}\n🔢 <b>ID:</b> <code>${result.user.telegramId}</code>`
+        `✅ <b>রেজিস্ট্রেশন সফল [${i + 1}/${TOTAL_REGISTRATIONS}]</b>\n<b>ইউজার:</b> ${result.user.fullName} (@${result.user.username})\n<b>আইডি:</b> <code>${result.user.telegramId}</code>`
       );
     } else {
       failCount++;
-      // প্রতিটি ব্যর্থ টাস্কের ইনস্ট্যান্ট টেলিগ্রাম রিপোর্ট
       await sendTelegramNotification(
-        `❌ <b>টাস্ক ব্যর্থ [${i + 1}/${TOTAL_REGISTRATIONS}]</b>\n👤 <b>ইউজার:</b> @${result.user.username}\n⚠️ <b>কারণ:</b> ${result.error}`
+        `❌ <b>রেজিস্ট্রেশন ব্যর্থ [${i + 1}/${TOTAL_REGISTRATIONS}]</b>\n<b>ইউজার:</b> @${result.user.username}\n<b>কারণ:</b> ${result.error}`
       );
     }
   }
 
-  // চূড়ান্ত রিপোর্ট
   await sendTelegramNotification(
-    `📊 <b>চূড়ান্ত অটোমেশন রিপোর্ট</b>\n\n✅ <b>সফল:</b> ${successCount} টি\n❌ <b>ব্যর্থ:</b> ${failCount} টি\n🏁 <b>অবস্থা:</b> সম্পন্ন!`
+    `📊 <b>চূড়ান্ত অটোমেশন রিপোর্ট</b>\n\n✅ <b>সফল:</b> ${successCount} টি\n❌ <b>ব্যর্থ:</b> ${failCount} টি`
   );
 
-  console.log('সকল প্রসেস সম্পূর্ণ হয়েছে।');
+  console.log('সকল প্রসেস সম্পন্ন হয়েছে।');
 }
 
 main();
