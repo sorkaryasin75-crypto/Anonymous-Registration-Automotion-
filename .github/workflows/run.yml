@@ -1,16 +1,16 @@
-name: Run Telegram Registration Automation
+name: Telegram Real User Registration Automation
 
 on:
-  workflow_dispatch: # ম্যানুয়ালি রান করার জন্য
+  workflow_dispatch:
   schedule:
-    - cron: '0 */6 * * *' # প্রতি ৬ ঘণ্টা পরপর স্বয়ংক্রিয়ভাবে রান করবে
+    - cron: '0 */6 * * *'
 
 jobs:
   run-automation:
     runs-on: ubuntu-latest
 
     steps:
-      - name: Checkout repository
+      - name: Checkout Repository
         uses: actions/checkout@v4
 
       - name: Setup Node.js
@@ -18,16 +18,15 @@ jobs:
         with:
           node-version: '20'
 
-      - name: Install dependencies
+      - name: Install Dependencies
         run: |
           npm install
-          npx playwright install --with-deps
+          npx playwright install --with-deps chromium
 
       - name: Execute Automation Script
         env:
           TARGET_URL: ${{ secrets.TARGET_URL }}
           REG_COUNT: ${{ secrets.REG_COUNT }}
-          PING_INTERVAL_MS: ${{ secrets.PING_INTERVAL_MS }}
           TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
           TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
           PROXY_SERVER: ${{ secrets.PROXY_SERVER }}
