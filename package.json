@@ -1,7 +1,7 @@
 {
-  "name": "telegram-mini-app-registration",
+  "name": "telegram-real-user-automation",
   "version": "1.0.0",
-  "description": "Multi-browser Telegram Web App Automation",
+  "description": "Production Ready Real Telegram User Finder and WebApp Auto Registration Engine",
   "main": "script.js",
   "scripts": {
     "start": "node script.js"
