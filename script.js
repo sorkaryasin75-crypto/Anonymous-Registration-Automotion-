@@ -1,7 +1,7 @@
 try {
   require('dotenv').config();
 } catch (e) {
-  // GitHub Actions বা সার্ভারে dotenv প্যাকেজ না থাকলে এটি সিস্টেম ভেরিয়েবল ব্যবহার করবে
+  // GitHub Actions বা ক্লাউড এনভায়রনমেন্টের জন্য
 }
 
 const { chromium } = require('playwright');
@@ -30,11 +30,11 @@ async function sendTelegramNotification(text) {
   }
 }
 
+// ফিক্সড ইউজার এজেন্টস জেনারেটর
 function generateRandomUserAgent() {
-  const userAgent = new UserAgent([
-    { deviceCategory: 'mobile' },
-    { deviceCategory: 'desktop' }
-  ]);
+  const categories = ['mobile', 'desktop'];
+  const randomCategory = categories[Math.floor(Math.random() * categories.length)];
+  const userAgent = new UserAgent({ deviceCategory: randomCategory });
   return userAgent.toString();
 }
 
